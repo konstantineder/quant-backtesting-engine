@@ -1,8 +1,20 @@
 #include "strategy/sma_crossover_strategy.hpp"
 
+#include "backtesting/backtest_config.hpp"
+#include "backtesting/backtest_engine.hpp"
+#include "backtesting/backtest_result.hpp"
+#include "common/constants.hpp"
+#include "execution/fill.hpp"
+#include "instrument/instrument.hpp"
+#include "instrument/instrument_registry.hpp"
+#include "instrument/instrument_universe.hpp"
+
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -85,6 +97,32 @@ SmaCrossoverStrategy makeStrategy(std::size_t instrument_index = 0) {
         kShortWindow,
         kLongWindow
     );
+}
+
+// --- driving the strategy through the engine ---------------------------
+
+constexpr double kEngineCash = 10'000.0;
+
+const InstrumentRegistry& registry() {
+    static const InstrumentRegistry built = [] {
+        InstrumentRegistry reg;
+        reg.registerInstrument(Equity{"AAPL", "AAPL"});
+        reg.registerInstrument(Equity{"MSFT", "MSFT"});
+        return reg;
+    }();
+    return built;
+}
+
+InstrumentUniverse makeUniverse() {
+    return InstrumentUniverse::fromInstrumentIds(
+        std::vector<std::string>{"AAPL", "MSFT"}, registry()
+    );
+}
+
+BacktestEngine makeEngine() {
+    return BacktestEngine{
+        BacktestConfig{kEngineCash, TRADING_DAYS_PER_YEAR}
+    };
 }
 
 } // namespace
@@ -253,4 +291,113 @@ TEST(SmaCrossoverStrategyTest, Clone_ResetsSignalState) {
 
     ASSERT_EQ(clone_weights.size(), 2u);
     EXPECT_DOUBLE_EQ(clone_weights[0], 1.0);
+}
+
+// ----------------------------------------- the strategy under the engine --
+//
+// The tests above pin down what the strategy EMITS. These pin down what
+// the engine then DOES with it, which is a different claim: an emission on
+// bar b must turn into exactly one trade on bar b + 1, and no trade at all
+// on the bars in between.
+//
+// makeSwitchingData opens every bar at 100, so these runs say nothing
+// about execution pricing -- that is what the integration suite's varying
+// opens are for. Here a flat open isolates the timing.
+
+TEST(SmaCrossoverStrategyTest, EngineRun_TradesOneBarAfterEachSignal) {
+    const BacktestEngine engine = makeEngine();
+    HistoricalMarketData market_data = makeSwitchingData();
+    SmaCrossoverStrategy strategy = makeStrategy();
+
+    const BacktestResult result =
+        engine.run(strategy, makeUniverse(), market_data);
+
+    // Signals land on bars 3 (long), 6 (cash) and 11 (long again). The
+    // last one has no bar left to execute on, so only two trades happen.
+    ASSERT_EQ(result.fills().size(), 2u);
+
+    EXPECT_EQ(result.fills()[0].barIndex(), 4u);
+    EXPECT_EQ(result.fills()[0].side(), OrderSide::BUY);
+    EXPECT_EQ(result.fills()[0].instrument(), InstrumentIndex{0});
+
+    EXPECT_EQ(result.fills()[1].barIndex(), 7u);
+    EXPECT_EQ(result.fills()[1].side(), OrderSide::SELL);
+    EXPECT_EQ(result.fills()[1].instrument(), InstrumentIndex{0});
+
+    // The cash signal on bar 6 closes the position exactly.
+    EXPECT_NEAR(
+        result.fills()[1].quantity(), -result.fills()[0].quantity(), 1e-9
+    );
+    EXPECT_NEAR(result.finalValuation().position_market_value, 0.0, 1e-6);
+}
+
+// Warmup emits nothing, so the account must still be untouched cash on
+// every bar before the first signal can be executed.
+TEST(SmaCrossoverStrategyTest, EngineRun_WarmupDoesNotTrade) {
+    const BacktestEngine engine = makeEngine();
+    HistoricalMarketData market_data = makeSwitchingData();
+    SmaCrossoverStrategy strategy = makeStrategy();
+
+    const BacktestResult result =
+        engine.run(strategy, makeUniverse(), market_data);
+
+    // First signal on bar 3, first possible execution on bar 4.
+    for (std::size_t bar = 0; bar <= kFirstValidIndex; ++bar) {
+        EXPECT_NEAR(result.equityCurve()[bar], kEngineCash, 1e-9)
+            << "bar " << bar;
+    }
+
+    for (const Fill& fill : result.fills()) {
+        EXPECT_GT(fill.barIndex(), kFirstValidIndex);
+    }
+}
+
+// A run only trades the instrument the strategy was configured for, even
+// though the universe holds two.
+TEST(SmaCrossoverStrategyTest, EngineRun_TradesTheSelectedInstrumentOnly) {
+    const BacktestEngine engine = makeEngine();
+    HistoricalMarketData market_data = makeMarketData(
+        std::vector<double>(12, 100.0),
+        {100.0, 101.0, 102.0, 103.0, 104.0, 103.0,
+         101.0, 98.0, 94.0, 90.0, 100.0, 110.0}
+    );
+    SmaCrossoverStrategy strategy = makeStrategy(1);
+
+    const BacktestResult result =
+        engine.run(strategy, makeUniverse(), market_data);
+
+    ASSERT_FALSE(result.fills().empty());
+    for (const Fill& fill : result.fills()) {
+        EXPECT_EQ(fill.instrument(), InstrumentIndex{1});
+    }
+}
+
+// A clone carries the configuration but no signal state, so running it
+// from scratch reproduces the original run exactly.
+TEST(SmaCrossoverStrategyTest, EngineRun_CloneReproducesTheRun) {
+    const BacktestEngine engine = makeEngine();
+    HistoricalMarketData market_data = makeSwitchingData();
+
+    SmaCrossoverStrategy original = makeStrategy();
+    const BacktestResult reference =
+        engine.run(original, makeUniverse(), market_data);
+
+    const std::unique_ptr<Strategy> worker = original.clone();
+    const BacktestResult cloned =
+        engine.run(*worker, makeUniverse(), market_data);
+
+    ASSERT_EQ(reference.numBars(), cloned.numBars());
+    for (std::size_t bar = 0; bar < reference.numBars(); ++bar) {
+        EXPECT_DOUBLE_EQ(
+            reference.equityCurve()[bar], cloned.equityCurve()[bar]
+        ) << "bar " << bar;
+    }
+
+    ASSERT_EQ(reference.fills().size(), cloned.fills().size());
+    for (std::size_t i = 0; i < reference.fills().size(); ++i) {
+        EXPECT_EQ(reference.fills()[i].barIndex(), cloned.fills()[i].barIndex());
+        EXPECT_DOUBLE_EQ(
+            reference.fills()[i].quantity(), cloned.fills()[i].quantity()
+        );
+    }
 }

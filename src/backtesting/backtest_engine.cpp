@@ -68,6 +68,11 @@ BacktestResult BacktestEngine::run(
     // once, here, rather than guessed at per bar.
     universe.validateAlignment(market_data.instrumentIds());
 
+    // At least one bar is guaranteed: HistoricalMarketData rejects an
+    // empty date vector at construction. That matters here because the
+    // valuation returned below is the one the last bar produced -- with no
+    // bars at all it would be a default-constructed zero, which would
+    // claim an empty account that in fact holds initial_cash.
     const std::size_t num_bars = market_data.numDates();
     const std::size_t slots = universe.size();
 
@@ -86,7 +91,10 @@ BacktestResult BacktestEngine::run(
     dates.reserve(num_bars);
     equity_curve.reserve(num_bars);
 
-    // Reused across bars so the loop allocates nothing per bar.
+    // Reuse the price buffer across bars to avoid reallocating a
+    // universe-wide vector every bar. The loop as a whole is NOT
+    // allocation-free: the fills and the plan are returned by value, and
+    // the book, the log and the strategy may each allocate.
     std::vector<double> unit_prices(slots, 0.0);
     TargetWeights target_weights;
 
@@ -142,12 +150,14 @@ BacktestResult BacktestEngine::run(
             // cancellation before any submission -- the book rejects an
             // order that opposes live exposure, so applying the plan in
             // the order given is what makes a reversal possible at all.
-            const std::vector<OrderInstruction> plan =
+            std::vector<OrderInstruction> plan =
                 order_generator.generate(
                     target_weights, account, unit_prices, pending_orders
                 );
 
-            for (const OrderInstruction& instruction : plan) {
+            // The plan is dead once applied, so each order is moved into
+            // the book rather than copied.
+            for (OrderInstruction& instruction : plan) {
                 if (const auto* cancel =
                         std::get_if<CancelOrder>(&instruction)) {
                     pending_orders.cancel(cancel->id);
@@ -155,7 +165,8 @@ BacktestResult BacktestEngine::run(
                     // Stamped with THIS bar, which is what stops the
                     // ExecutionModel from filling it before the next open.
                     pending_orders.submit(
-                        std::get<SubmitOrder>(instruction).order, bar
+                        std::move(std::get<SubmitOrder>(instruction).order),
+                        bar
                     );
                 }
             }
