@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(trader VERSION 1.0 LANGUAGES CXX)
 
+# Written to the build directory so the editor's IntelliSense picks up the
+# real compiler flags -- above all -std=c++20 -- instead of guessing.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 include(FetchContent)
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
@@ -11,15 +15,17 @@ add_library(trader STATIC
     src/instrument/instrument_registry.cpp
     src/pricing_engine/pricer.cpp
     src/pricing_engine/black_scholes_pricer.cpp
-    src/backtesting/market_data/historical_market_data.cpp
-    src/backtesting/strategy/strategy_context.cpp
-    src/backtesting/strategy/sma_crossover_strategy.cpp
-    src/trading/instrument_universe.cpp
-    src/trading/position_state.cpp
-    src/trading/instrument_trading_spec.cpp
-    src/backtesting/account/account.cpp
-    src/valuation/account_valuator.cpp
-    src/backtesting/engine/performance_metrics.cpp
+    src/market_data/historical_market_data.cpp
+    src/strategy/strategy_context.cpp
+    src/strategy/sma_crossover_strategy.cpp
+    src/instrument/instrument_universe.cpp
+    src/position/position_state.cpp
+    src/instrument/instrument_trading_spec.cpp
+    src/account/account.cpp
+    src/analytics/account_valuator.cpp
+    src/analytics/performance_metrics.cpp
+    src/backtesting/backtest_engine.cpp
+    src/backtesting/backtest_config.hpp
 )
 
 target_include_directories(trader PUBLIC
@@ -76,10 +82,12 @@ if(BUILD_TESTING)
         test/trading/test_pending_order_book.cpp
         test/trading/test_order_generator.cpp
         test/trading/test_instrument_trading_spec.cpp
+        test/execution/test_execution_model.cpp
         test/backtesting/account/test_account.cpp
         test/valuation/test_account_valuation.cpp
         test/backtesting/engine/test_performance_metrics.cpp
         test/backtesting/engine/test_backtest_integration.cpp
+        test/backtesting/engine/test_backtest_engine.cpp
     )
     target_link_libraries(portfolio_tests PRIVATE trader GTest::gtest_main)
 

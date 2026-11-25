@@ -1,4 +1,4 @@
-#include "backtesting/strategy/sma_crossover_strategy.hpp"
+#include "strategy/sma_crossover_strategy.hpp"
 
 #include <gtest/gtest.h>
 

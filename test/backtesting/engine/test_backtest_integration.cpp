@@ -7,13 +7,13 @@
 // ticket. What this test pins down is that the new pieces compose, and
 // that the legacy Strategy interface still fits without changes.
 
-#include "backtesting/account/account.hpp"
-#include "backtesting/engine/backtest_result.hpp"
-#include "backtesting/market_data/historical_market_data.hpp"
-#include "backtesting/strategy/sma_crossover_strategy.hpp"
-#include "trading/execution_log.hpp"
-#include "trading/instrument_universe.hpp"
-#include "valuation/account_valuator.hpp"
+#include "account/account.hpp"
+#include "backtesting/backtest_result.hpp"
+#include "market_data/historical_market_data.hpp"
+#include "strategy/sma_crossover_strategy.hpp"
+#include "execution/execution_log.hpp"
+#include "instrument/instrument_universe.hpp"
+#include "analytics/account_valuator.hpp"
 #include "volatility/flat_volatility_surface.hpp"
 #include "yield_curve/flat_yield_curve.hpp"
 

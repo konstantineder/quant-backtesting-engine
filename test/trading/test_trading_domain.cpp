@@ -1,7 +1,7 @@
-#include "trading/execution_log.hpp"
-#include "trading/fill.hpp"
-#include "trading/order.hpp"
-#include "trading/position_state.hpp"
+#include "execution/execution_log.hpp"
+#include "execution/fill.hpp"
+#include "order/order.hpp"
+#include "position/position_state.hpp"
 
 #include <gtest/gtest.h>
 

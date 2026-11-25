@@ -1,5 +1,5 @@
-#include "backtesting/engine/backtest_result.hpp"
-#include "backtesting/engine/performance_metrics.hpp"
+#include "backtesting/backtest_result.hpp"
+#include "analytics/performance_metrics.hpp"
 
 #include <gtest/gtest.h>
 
@@ -132,6 +132,21 @@ TEST(PerformanceMetricsTest, RejectsNonPositiveEquity) {
     };
     EXPECT_THROW(
         computePerformanceMetrics(not_finite), std::invalid_argument
+    );
+}
+
+// A two-point curve has one return, so volatility and Sharpe are never
+// computed -- but the total return is, and that single division can
+// overflow on its own. The representability check must therefore not be
+// gated on the volatility branch.
+TEST(PerformanceMetricsTest, RejectsAnUnrepresentableTotalReturn) {
+    const std::vector<double> curve{
+        std::numeric_limits<double>::denorm_min(), 1e300
+    };
+
+    ASSERT_EQ(curve.size(), 2u);
+    EXPECT_THROW(
+        computePerformanceMetrics(curve), std::overflow_error
     );
 }
 

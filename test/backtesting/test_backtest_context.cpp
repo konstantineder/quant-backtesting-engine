@@ -1,4 +1,4 @@
-#include "backtesting/strategy/strategy_context.hpp"
+#include "strategy/strategy_context.hpp"
 #include <gtest/gtest.h>
 
 namespace {

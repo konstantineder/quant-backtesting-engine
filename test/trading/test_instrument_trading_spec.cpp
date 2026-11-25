@@ -1,4 +1,4 @@
-#include "trading/instrument_trading_spec.hpp"
+#include "instrument/instrument_trading_spec.hpp"
 
 #include "common/types.hpp"
 

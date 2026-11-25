@@ -1,6 +1,6 @@
-#include "trading/instrument_universe.hpp"
+#include "instrument/instrument_universe.hpp"
 
-#include "backtesting/market_data/historical_market_data.hpp"
+#include "market_data/historical_market_data.hpp"
 
 #include <gtest/gtest.h>
 

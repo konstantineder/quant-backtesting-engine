@@ -1,4 +1,4 @@
-#include "backtesting/market_data/historical_market_data.hpp"
+#include "market_data/historical_market_data.hpp"
 #include <gtest/gtest.h>
 
 namespace {
