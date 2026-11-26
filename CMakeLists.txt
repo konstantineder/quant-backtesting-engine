@@ -25,7 +25,6 @@ add_library(trader STATIC
     src/analytics/account_valuator.cpp
     src/analytics/performance_metrics.cpp
     src/backtesting/backtest_engine.cpp
-    src/backtesting/backtest_config.hpp
 )
 
 target_include_directories(trader PUBLIC
@@ -83,6 +82,9 @@ if(BUILD_TESTING)
         test/trading/test_order_generator.cpp
         test/trading/test_instrument_trading_spec.cpp
         test/execution/test_execution_model.cpp
+        test/execution/test_execution_model_policies.cpp
+        test/execution/slippage/test_slippage_policy.cpp
+        test/execution/commission/test_commission_policy.cpp
         test/backtesting/account/test_account.cpp
         test/valuation/test_account_valuation.cpp
         test/backtesting/engine/test_performance_metrics.cpp

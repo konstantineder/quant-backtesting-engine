@@ -1,3 +1,8 @@
+// Eligibility and timing, unchanged from TR-008 and pinned against the
+// default, frictionless composition: these rules must hold whatever the
+// cost policies are. What the policies themselves add is covered in
+// test_execution_model_policies.cpp.
+
 #include "execution/execution_model.hpp"
 
 #include "market_data/historical_market_data.hpp"
@@ -101,21 +106,35 @@ void submit(
     book.submit(MarketOrder{OrderId{id}, slot, quantity}, submitted_bar);
 }
 
+// execute() is [[nodiscard]] and EXPECT_THROW evaluates its argument as a
+// statement, so a call expected to throw has to discard the result
+// explicitly. There are no fills to read when it does throw.
+template <typename Model>
+void run(
+    const Model& model,
+    const PendingOrderBook& book,
+    std::size_t bar_index
+) {
+    static_cast<void>(
+        model.execute(book, marketData(), universe(), bar_index)
+    );
+}
+
 } // namespace
 
 TEST(ExecutionModelTest, AnEmptyBookProducesNoFills) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     const PendingOrderBook book = makeBook();
 
-    EXPECT_TRUE(model.execute(book, marketData(), 1).empty());
+    EXPECT_TRUE(model.execute(book, marketData(), universe(), 1).empty());
 }
 
 TEST(ExecutionModelTest, FillsAWorkingOrderAtTheOpenOfTheExecutedBar) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 0);
 
-    const std::vector<Fill> fills = model.execute(book, marketData(), 1);
+    const std::vector<Fill> fills = model.execute(book, marketData(), universe(), 1);
 
     ASSERT_EQ(fills.size(), 1u);
     const Fill& fill = fills.front();
@@ -132,14 +151,14 @@ TEST(ExecutionModelTest, FillsAWorkingOrderAtTheOpenOfTheExecutedBar) {
 // The guard that keeps the backtest honest: an order may not execute on the
 // bar whose prices the strategy has just acted on.
 TEST(ExecutionModelTest, DoesNotFillOnTheSubmissionBar) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 2);
 
-    EXPECT_TRUE(model.execute(book, marketData(), 2).empty());
+    EXPECT_TRUE(model.execute(book, marketData(), universe(), 2).empty());
 
     // A later bar does execute it, and at that bar's open.
-    const std::vector<Fill> fills = model.execute(book, marketData(), 3);
+    const std::vector<Fill> fills = model.execute(book, marketData(), universe(), 3);
     ASSERT_EQ(fills.size(), 1u);
     EXPECT_DOUBLE_EQ(fills.front().price(), expectedOpen(3, 0));
 }
@@ -147,19 +166,19 @@ TEST(ExecutionModelTest, DoesNotFillOnTheSubmissionBar) {
 // Nothing can have been submitted before the first bar, so bar 0 is always
 // a no-op however the book is seeded.
 TEST(ExecutionModelTest, FillsNothingOnTheFirstBar) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 0);
 
-    EXPECT_TRUE(model.execute(book, marketData(), 0).empty());
+    EXPECT_TRUE(model.execute(book, marketData(), universe(), 0).empty());
 }
 
 TEST(ExecutionModelTest, KeepsTheDirectionOfAShortOrder) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, -15.0, 0);
 
-    const std::vector<Fill> fills = model.execute(book, marketData(), 1);
+    const std::vector<Fill> fills = model.execute(book, marketData(), universe(), 1);
 
     ASSERT_EQ(fills.size(), 1u);
     EXPECT_DOUBLE_EQ(fills.front().quantity(), -15.0);
@@ -167,7 +186,7 @@ TEST(ExecutionModelTest, KeepsTheDirectionOfAShortOrder) {
 }
 
 TEST(ExecutionModelTest, SkipsTerminalOrders) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 0);
     submit(book, 2, 10.0, 0);
@@ -178,14 +197,14 @@ TEST(ExecutionModelTest, SkipsTerminalOrders) {
     );
     book.cancel(OrderId{2});
 
-    const std::vector<Fill> fills = model.execute(book, marketData(), 1);
+    const std::vector<Fill> fills = model.execute(book, marketData(), universe(), 1);
 
     ASSERT_EQ(fills.size(), 1u);
     EXPECT_EQ(fills.front().orderId(), OrderId{3});
 }
 
 TEST(ExecutionModelTest, ExecutesOnlyTheOutstandingRemainder) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 100.0, 0);
 
@@ -194,19 +213,19 @@ TEST(ExecutionModelTest, ExecutesOnlyTheOutstandingRemainder) {
     );
     ASSERT_EQ(book.get(OrderId{1}).status(), OrderStatus::PARTIALLY_FILLED);
 
-    const std::vector<Fill> fills = model.execute(book, marketData(), 1);
+    const std::vector<Fill> fills = model.execute(book, marketData(), universe(), 1);
 
     ASSERT_EQ(fills.size(), 1u);
     EXPECT_DOUBLE_EQ(fills.front().quantity(), 70.0);
 }
 
 TEST(ExecutionModelTest, PricesEachSlotFromItsOwnColumn) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 10.0, 0, kSlotA);
     submit(book, 2, -20.0, 0, kSlotB);
 
-    const std::vector<Fill> fills = model.execute(book, marketData(), 2);
+    const std::vector<Fill> fills = model.execute(book, marketData(), universe(), 2);
 
     ASSERT_EQ(fills.size(), 2u);
     // Submission order is preserved, so slot A comes first.
@@ -219,12 +238,12 @@ TEST(ExecutionModelTest, PricesEachSlotFromItsOwnColumn) {
 // The model plans, it does not act. Nothing it returns may have changed the
 // book, so the same call twice must give the same answer.
 TEST(ExecutionModelTest, LeavesTheBookUntouched) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 0);
 
-    const std::vector<Fill> first = model.execute(book, marketData(), 1);
-    const std::vector<Fill> second = model.execute(book, marketData(), 1);
+    const std::vector<Fill> first = model.execute(book, marketData(), universe(), 1);
+    const std::vector<Fill> second = model.execute(book, marketData(), universe(), 1);
 
     ASSERT_EQ(first.size(), 1u);
     ASSERT_EQ(second.size(), 1u);
@@ -238,12 +257,12 @@ TEST(ExecutionModelTest, LeavesTheBookUntouched) {
 // Applying the returned fills is what retires the orders -- the round trip
 // the engine loop will perform.
 TEST(ExecutionModelTest, ApplyingTheFillsRetiresTheOrders) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 0, kSlotA);
     submit(book, 2, -20.0, 0, kSlotB);
 
-    for (const Fill& fill : model.execute(book, marketData(), 1)) {
+    for (const Fill& fill : model.execute(book, marketData(), universe(), 1)) {
         book.applyFill(fill);
     }
 
@@ -253,26 +272,25 @@ TEST(ExecutionModelTest, ApplyingTheFillsRetiresTheOrders) {
     EXPECT_DOUBLE_EQ(book.pendingQuantity(kSlotB), 0.0);
 
     // With everything terminal, the next bar has nothing left to execute.
-    EXPECT_TRUE(model.execute(book, marketData(), 2).empty());
+    EXPECT_TRUE(model.execute(book, marketData(), universe(), 2).empty());
 }
 
 TEST(ExecutionModelTest, RejectsABarIndexBeyondTheMarketData) {
-    const ExecutionModel model;
+    const ExecutionModel<> model;
     PendingOrderBook book = makeBook();
     submit(book, 1, 40.0, 0);
 
-    EXPECT_THROW(
-        model.execute(book, marketData(), kBarCount),
-        std::out_of_range
-    );
+    EXPECT_THROW(run(model, book, kBarCount), std::out_of_range);
 }
 
-// An out-of-range bar with nothing workable in it is not an error: the
-// model never reaches the market data, which is the same laziness that
-// keeps a missing quote on an untouched instrument from failing a bar.
-TEST(ExecutionModelTest, DoesNotReadMarketDataWithoutAWorkableOrder) {
-    const ExecutionModel model;
+// The bar index is validated up front, before anything is iterated, so an
+// invalid one is rejected even when there is nothing to execute. Deferring
+// the check until a workable order needed a price would make the same call
+// throw or not depending on the contents of the book -- which would hide a
+// caller's off-by-one on exactly the bars where no order happens to rest.
+TEST(ExecutionModelTest, RejectsAnInvalidBarIndexWithAnEmptyBook) {
+    const ExecutionModel<> model;
     const PendingOrderBook book = makeBook();
 
-    EXPECT_THROW(model.execute(book, marketData(), kBarCount), std::out_of_range);
+    EXPECT_THROW(run(model, book, kBarCount), std::out_of_range);
 }

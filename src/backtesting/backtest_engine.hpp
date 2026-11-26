@@ -5,6 +5,8 @@
 #include "market_data/historical_market_data.hpp"
 #include "strategy/strategy.hpp"
 #include "instrument/instrument_universe.hpp"
+#include "execution/execution_policy.hpp"
+#include "execution/execution_model.hpp"
 
 // Drives one backtest: walks the bars, lets the strategy decide, turns its
 // decisions into orders and executes them.
@@ -65,11 +67,12 @@ class BacktestEngine {
 public:
     explicit BacktestEngine(BacktestConfig config);
 
-    [[nodiscard]]
+    template<ExecutionPolicy E = ExecutionModel<>>
     BacktestResult run(
         Strategy& strategy,
         const InstrumentUniverse& universe,
-        const HistoricalMarketData& market_data
+        const HistoricalMarketData& market_data,
+        const E& execution_model = E{}
     ) const;
 
     const BacktestConfig& config() const noexcept { return config_; }
@@ -77,3 +80,5 @@ public:
 private:
     BacktestConfig config_;
 };
+
+#include "backtesting/backtest_engine.tpp"
